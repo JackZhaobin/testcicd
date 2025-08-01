@@ -1,66 +1,77 @@
-name: Build and Deploy ASP.NET Core
+name: Build and Deploy ASP.NET Core to GitHub Pages
 
 on:
   push:
-    branches: [ main ] # 触发分支，确保是main而不是master
+    branches: [ dev ] # 触发分支
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest # GitHub Actions运行环境
+    runs-on: ubuntu-latest
+    
+    # 设置GitHub Pages权限
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    
+    # 确保只有一个部署任务同时运行
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
     
     steps:
-    - name: Checkout code # 下载代码
-      uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
       
-    - name: Setup .NET SDK 9.0 # 设置.NET环境
+    - name: Setup .NET SDK 9.0
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '9.0.x' # 匹配项目要求的版本
+        dotnet-version: '9.0.x'
         
-    - name: Restore dependencies # 恢复依赖
+    - name: Restore dependencies
       run: dotnet restore ./src/code/testcicd/testcicd.sln
       
-    - name: Build project # 构建项目
+    - name: Build project
       run: dotnet build ./src/code/testcicd/testcicd.sln -c Release --no-restore
       
-    - name: Publish app # 发布应用
-      run: dotnet publish ./src/code/testcicd/testcicd.sln -c Release -o publish --no-build
+    - name: Publish app for web deployment
+      run: dotnet publish ./src/code/testcicd/testcicd.sln -c Release -o ./publish --no-build
       
-    - name: Upload to server # 上传到服务器
-      uses: appleboy/scp-action@v0.1.4
+    - name: Setup GitHub Pages
+      uses: actions/configure-pages@v4
+      
+    - name: Upload artifact to GitHub Pages
+      uses: actions/upload-pages-artifact@v3
       with:
-        host: ${{ secrets.SSH_HOST }}        # 服务器IP: 192.168.23.59
-        username: ${{ secrets.SSH_USER }}    # 服务器用户名
-        key: ${{ secrets.SSH_KEY }}          # 笔记本的私钥
-        port: 22                             # SSH端口
-        source: "publish/*"                  # 要上传的文件
-        target: "/home/ubuntu/workdisk/01_project_agx/10_ci_cd/02_server_cicd"        # 服务器目标路径
+        path: './publish'
         
-    - name: Deploy on server # 在服务器上部署
-      uses: appleboy/ssh-action@v0.1.6
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+  # 可选：为本地部署准备文件下载
+  create-local-deployment:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET SDK 9.0
+      uses: actions/setup-dotnet@v3
       with:
-        host: ${{ secrets.SSH_HOST }}
-        username: ${{ secrets.SSH_USER }}
-        key: ${{ secrets.SSH_KEY }}
-        port: 22
-        script: |
-          # 停止现有服务（如果存在）
-          sudo pkill -f testcicd || true
-          
-          # 进入部署目录
-          cd /home/ubuntu/workdisk/01_project_agx/10_ci_cd/02_server_cicd/publish
-          
-          # 设置执行权限
-          chmod +x testcicd
-          
-          # 后台启动应用（可选）
-          nohup dotnet testcicd.dll > app.log 2>&1 &
-          
-          # 检查应用是否启动成功
-          sleep 5
-          if pgrep -f testcicd > /dev/null; then
-            echo "Application started successfully"
-          else
-            echo "Failed to start application"
-            exit 1
-          fi
+        dotnet-version: '9.0.x'
+        
+    - name: Build self-contained app for Linux
+      run: |
+        dotnet restore ./src/code/testcicd/testcicd.sln
+        dotnet publish ./src/code/testcicd/testcicd.sln -c Release -o ./local-deploy \
+          --self-contained true -r linux-x64 --no-restore
+        
+    - name: Archive local deployment files
+      uses: actions/upload-artifact@v4
+      with:
+        name: testcicd-linux-deployment
+        path: ./local-deploy/
+        retention-days: 30
