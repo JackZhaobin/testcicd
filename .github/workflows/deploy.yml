@@ -34,7 +34,7 @@ jobs:
         key: ${{ secrets.SSH_KEY }}          # 笔记本的私钥
         port: 22                             # SSH端口
         source: "publish/*"                  # 要上传的文件
-        target: "/home/corenetic/zhaobinbin/testcicd"        # 服务器目标路径
+        target: "/home/ubuntu/workdisk/01_project_agx/10_ci_cd/02_server_cicd"        # 服务器目标路径
         
     - name: Deploy on server # 在服务器上部署
       uses: appleboy/ssh-action@v0.1.6
