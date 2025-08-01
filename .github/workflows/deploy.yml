@@ -2,29 +2,65 @@ name: Build and Deploy ASP.NET Core
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main ] # 触发分支，确保是main而不是master
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-latest # GitHub Actions运行环境
+    
     steps:
-    - name: Checkout code
+    - name: Checkout code # 下载代码
       uses: actions/checkout@v3
-
-    - name: Setup .NET SDK 9.0
+      
+    - name: Setup .NET SDK 8.0 # 设置.NET环境
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '9.0.x'
-
-    - name: Publish app
-      run: dotnet publish ./src/code/testcicd/testcicd.sln -c Release -o publish
-
-    - name: Upload to Ubuntu server
+        dotnet-version: '8.0.x' # 根据你的项目调整版本
+        
+    - name: Restore dependencies # 恢复依赖
+      run: dotnet restore ./src/code/testcicd/testcicd.sln
+      
+    - name: Build project # 构建项目
+      run: dotnet build ./src/code/testcicd/testcicd.sln -c Release --no-restore
+      
+    - name: Publish app # 发布应用
+      run: dotnet publish ./src/code/testcicd/testcicd.sln -c Release -o publish --no-build
+      
+    - name: Upload to server # 上传到服务器
       uses: appleboy/scp-action@v0.1.4
+      with:
+        host: ${{ secrets.SSH_HOST }}        # 服务器IP: 192.168.23.59
+        username: ${{ secrets.SSH_USER }}    # 服务器用户名
+        key: ${{ secrets.SSH_KEY }}          # 笔记本的私钥
+        port: 22                             # SSH端口
+        source: "publish/*"                  # 要上传的文件
+        target: "/home/corenetic/zhaobinbin/testcicd"        # 服务器目标路径
+        
+    - name: Deploy on server # 在服务器上部署
+      uses: appleboy/ssh-action@v0.1.6
       with:
         host: ${{ secrets.SSH_HOST }}
         username: ${{ secrets.SSH_USER }}
         key: ${{ secrets.SSH_KEY }}
-        source: "publish/*"
-        target: "/home/cicd/testcicd"
+        port: 22
+        script: |
+          # 停止现有服务（如果存在）
+          sudo pkill -f testcicd || true
+          
+          # 进入部署目录
+          cd /home/corenetic/zhaobinbin/testcicd/publish
+          
+          # 设置执行权限
+          chmod +x testcicd
+          
+          # 后台启动应用（可选）
+          nohup dotnet testcicd.dll > app.log 2>&1 &
+          
+          # 检查应用是否启动成功
+          sleep 5
+          if pgrep -f testcicd > /dev/null; then
+            echo "Application started successfully"
+          else
+            echo "Failed to start application"
+            exit 1
+          fi
